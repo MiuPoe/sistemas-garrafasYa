@@ -27,6 +27,7 @@ export const DriverHomeScreen: React.FC = () => {
     toggleRouteActive,
     driverStatus,
     setDriverStatus,
+    finishRoute,
     addIncident,
   } = useApp();
 
@@ -47,12 +48,40 @@ export const DriverHomeScreen: React.FC = () => {
     assignedRoute?.stops[1] ||
     assignedRoute?.stops[0];
 
+  const isRouteFinished =
+    assignedRoute?.estado === 'Finalizada' || driverStatus === 'Finalizado';
+
   const handleNextStop = () => {
     advanceRouteStop();
     Alert.alert('Parada Confirmada', 'Se avanzó al siguiente punto de entrega en La Paz.');
   };
 
+  const handleFinishRoute = () => {
+    Alert.alert(
+      '¿Finalizar Recorrido de Hoy?',
+      'Esta acción marcará tu ruta como concluida en Supabase, vaciará el stock activo del camión y lo pondrá en estado de descanso.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Sí, Finalizar Recorrido',
+          style: 'destructive',
+          onPress: async () => {
+            await finishRoute(assignedRoute?.id);
+            Alert.alert(
+              'Recorrido Finalizado',
+              'Ruta concluida y sincronizada en tiempo real con la administración central de Senkata.'
+            );
+          },
+        },
+      ]
+    );
+  };
+
   const handleStatusChange = (newStatus: 'En ruta' | 'Próximo a llegar' | 'Finalizado') => {
+    if (newStatus === 'Finalizado') {
+      handleFinishRoute();
+      return;
+    }
     setDriverStatus(newStatus);
     Alert.alert('Estado Actualizado', `Tu estado ahora es: ${newStatus}`);
   };
@@ -83,191 +112,247 @@ export const DriverHomeScreen: React.FC = () => {
       </View>
 
       {/* ================================================================= */}
-      {/* BANNER ESTILO PEDIDOSYA: NOTIFICACIÓN DE RUTA ASIGNADA ACTIVA */}
+      {/* BANNER PRINCIPAL: RUTA ACTIVA VS FINALIZADA */}
       {/* ================================================================= */}
-      <View style={styles.pedidosYaBanner}>
-        <View style={styles.pedidosYaTop}>
-          <View style={styles.bellPill}>
-            <SvgIcon name="truck" size={16} color="#FFFFFF" />
-            <Text style={styles.bellPillText}>RUTA ASIGNADA ACTIVA</Text>
-          </View>
-          <Badge
-            label={driverStatus}
-            variant={
-              driverStatus === 'Próximo a llegar'
-                ? 'warning'
-                : driverStatus === 'En ruta'
-                ? 'success'
-                : 'neutral'
-            }
-            size="sm"
-            dot={true}
-          />
-        </View>
-
-        <Text style={styles.pedidosYaTitle}>
-          ¡Tienes un recorrido de distribución en curso!
-        </Text>
-        <Text style={styles.pedidosYaSubtitle}>
-          {assignedRoute?.nombre_ruta || 'Ruta 1: Zona Sur (Obrajes - Los Pinos)'}
-        </Text>
-
-        <View style={styles.originDestCard}>
-          <View style={styles.pointRow}>
-            <View style={[styles.dot, { backgroundColor: '#10B981' }]} />
-            <Text style={styles.pointLabel}>Partida: </Text>
-            <Text style={styles.pointValue} numberOfLines={1}>
-              {assignedRoute?.punto_origen || 'Planta Central Senkata (Distribuidora La Paz)'}
-            </Text>
-          </View>
-          <View style={styles.pointDivider} />
-          <View style={styles.pointRow}>
-            <View style={[styles.dot, { backgroundColor: '#EF4444' }]} />
-            <Text style={styles.pointLabel}>Destino: </Text>
-            <Text style={styles.pointValue} numberOfLines={1}>
-              {assignedRoute?.punto_destino || 'Calle 15 de Irpavi'}
-            </Text>
-          </View>
-        </View>
-
-        {/* Selector de Estado del Recorrido (Checklist #5) */}
-        <Text style={styles.statusChangeLabel}>Cambiar Estado de Recorrido:</Text>
-        <View style={styles.statusButtonsRow}>
-          <Pressable
-            style={[
-              styles.statusBtn,
-              driverStatus === 'En ruta' && styles.statusBtnActive,
-            ]}
-            onPress={() => handleStatusChange('En ruta')}
-          >
-            <Text
-              style={[
-                styles.statusBtnText,
-                driverStatus === 'En ruta' && styles.statusBtnTextActive,
-              ]}
-            >
-              En ruta
-            </Text>
-          </Pressable>
-
-          <Pressable
-            style={[
-              styles.statusBtn,
-              driverStatus === 'Próximo a llegar' && styles.statusBtnActive,
-            ]}
-            onPress={() => handleStatusChange('Próximo a llegar')}
-          >
-            <Text
-              style={[
-                styles.statusBtnText,
-                driverStatus === 'Próximo a llegar' && styles.statusBtnTextActive,
-              ]}
-            >
-              Próximo a llegar
-            </Text>
-          </Pressable>
-
-          <Pressable
-            style={[
-              styles.statusBtn,
-              driverStatus === 'Finalizado' && styles.statusBtnActive,
-            ]}
-            onPress={() => handleStatusChange('Finalizado')}
-          >
-            <Text
-              style={[
-                styles.statusBtnText,
-                driverStatus === 'Finalizado' && styles.statusBtnTextActive,
-              ]}
-            >
-              Finalizado
-            </Text>
-          </Pressable>
-        </View>
-      </View>
-
-      {/* ================================================================= */}
-      {/* PANEL DE CONTROL DE CARGA (VENTA RÁPIDA -1, -2, -5) */}
-      {/* ================================================================= */}
-      <View style={styles.stockCard}>
-        <View style={styles.stockTop}>
-          <View>
-            <Text style={styles.stockLabel}>GARRAFAS EN CAMIÓN</Text>
-            <Text style={styles.stockBigNumber}>{stockRemaining}</Text>
-            <Text style={styles.stockSub}>Disponibles para entrega (Bs 22.50)</Text>
-          </View>
-          <View style={styles.stockStatsRight}>
-            <View style={styles.smallStat}>
-              <Text style={styles.smallStatNum}>{totalDelivered}</Text>
-              <Text style={styles.smallStatLabel}>Entregadas</Text>
+      {isRouteFinished ? (
+        <View style={styles.completedBanner}>
+          <View style={styles.pedidosYaTop}>
+            <View style={[styles.bellPill, { backgroundColor: '#10B981' }]}>
+              <SvgIcon name="checkCircle" size={16} color="#FFFFFF" />
+              <Text style={styles.bellPillText}>RECORRIDO FINALIZADO</Text>
             </View>
-            <View style={styles.smallStat}>
-              <Text style={styles.smallStatNum}>{emptyCylinders}</Text>
-              <Text style={styles.smallStatLabel}>Vacíos rec.</Text>
+            <Badge label="En Descanso" variant="neutral" size="sm" dot={false} />
+          </View>
+
+          <Text style={styles.completedTitle}>
+            Recorrido finalizado exitosamente
+          </Text>
+          <Text style={styles.completedSubtitle}>
+            Esperando nueva ruta asignada por la administración central de Senkata.
+          </Text>
+
+          <View style={styles.completedSummaryBox}>
+            <Text style={styles.completedSummaryTitle}>Resumen de la jornada de hoy:</Text>
+            <View style={styles.summaryItemRow}>
+              <Text style={styles.summaryItemLabel}>• Ruta:</Text>
+              <Text style={styles.summaryItemValue}>{assignedRoute?.nombre_ruta || 'Zona Sur (La Paz)'}</Text>
+            </View>
+            <View style={styles.summaryItemRow}>
+              <Text style={styles.summaryItemLabel}>• Garrafas entregadas hoy:</Text>
+              <Text style={styles.summaryItemValue}>{totalDelivered} unidades (Bs. 22.50 c/u)</Text>
+            </View>
+            <View style={styles.summaryItemRow}>
+              <Text style={styles.summaryItemLabel}>• Cilindros vacíos recibidos:</Text>
+              <Text style={styles.summaryItemValue}>{emptyCylinders} cilindros</Text>
+            </View>
+            <View style={styles.summaryItemRow}>
+              <Text style={styles.summaryItemLabel}>• Garrafas restantes en camión:</Text>
+              <Text style={styles.summaryItemValue}>0 garrafas</Text>
+            </View>
+            <View style={styles.summaryItemRow}>
+              <Text style={styles.summaryItemLabel}>• Estado del camión:</Text>
+              <Text style={[styles.summaryItemValue, { color: '#10B981', fontWeight: '700' }]}>Descanso en Base</Text>
             </View>
           </View>
         </View>
+      ) : (
+        <>
+          <View style={styles.pedidosYaBanner}>
+            <View style={styles.pedidosYaTop}>
+              <View style={styles.bellPill}>
+                <SvgIcon name="truck" size={16} color="#FFFFFF" />
+                <Text style={styles.bellPillText}>RUTA ASIGNADA ACTIVA</Text>
+              </View>
+              <Badge
+                label={driverStatus}
+                variant={
+                  driverStatus === 'Próximo a llegar'
+                    ? 'warning'
+                    : driverStatus === 'En ruta'
+                    ? 'success'
+                    : 'neutral'
+                }
+                size="sm"
+                dot={true}
+              />
+            </View>
 
-        <Text style={styles.quickSaleTitle}>VENTA RÁPIDA DE GARRAFAS:</Text>
-        <View style={styles.quickSaleRow}>
-          <Pressable
-            style={styles.quickSaleBtn}
-            onPress={() => deductStock(1)}
-          >
-            <Text style={styles.quickSaleText}>-1 Garrafa</Text>
-            <Text style={styles.quickSaleSub}>Bs 22.50</Text>
-          </Pressable>
-
-          <Pressable
-            style={styles.quickSaleBtn}
-            onPress={() => deductStock(2)}
-          >
-            <Text style={styles.quickSaleText}>-2 Garrafas</Text>
-            <Text style={styles.quickSaleSub}>Bs 45.00</Text>
-          </Pressable>
-
-          <Pressable
-            style={styles.quickSaleBtn}
-            onPress={() => deductStock(5)}
-          >
-            <Text style={styles.quickSaleText}>-5 Garrafas</Text>
-            <Text style={styles.quickSaleSub}>Bs 112.50</Text>
-          </Pressable>
-        </View>
-      </View>
-
-      {/* ================================================================= */}
-      {/* PARADA ACTUAL Y HOJA DE RUTA CON HORARIOS ESTIMADOS */}
-      {/* ================================================================= */}
-      <View style={styles.currentStopCard}>
-        <View style={styles.currentStopHeader}>
-          <View>
-            <Text style={styles.currentStopTag}>PARADA ACTUAL EN CURSO</Text>
-            <Text style={styles.currentStopTitle}>
-              {currentStop?.nombre_parada || 'Cruce Av. Petrolera / Obrajes'}
+            <Text style={styles.pedidosYaTitle}>
+              ¡Tienes un recorrido de distribución en curso!
             </Text>
-            <Text style={styles.currentStopTime}>
-              Hora estimada: {currentStop?.hora_estimada || '09:15 AM'}
+            <Text style={styles.pedidosYaSubtitle}>
+              {assignedRoute?.nombre_ruta || 'Ruta 1: Zona Sur (Obrajes - Los Pinos)'}
             </Text>
+
+            <View style={styles.originDestCard}>
+              <View style={styles.pointRow}>
+                <View style={[styles.dot, { backgroundColor: '#10B981' }]} />
+                <Text style={styles.pointLabel}>Partida: </Text>
+                <Text style={styles.pointValue} numberOfLines={1}>
+                  {assignedRoute?.punto_origen || 'Planta Central Senkata (Distribuidora La Paz)'}
+                </Text>
+              </View>
+              <View style={styles.pointDivider} />
+              <View style={styles.pointRow}>
+                <View style={[styles.dot, { backgroundColor: '#EF4444' }]} />
+                <Text style={styles.pointLabel}>Destino: </Text>
+                <Text style={styles.pointValue} numberOfLines={1}>
+                  {assignedRoute?.punto_destino || 'Calle 15 de Irpavi'}
+                </Text>
+              </View>
+            </View>
+
+            {/* Selector de Estado del Recorrido (Checklist #5) */}
+            <Text style={styles.statusChangeLabel}>Cambiar Estado de Recorrido:</Text>
+            <View style={styles.statusButtonsRow}>
+              <Pressable
+                style={[
+                  styles.statusBtn,
+                  driverStatus === 'En ruta' && styles.statusBtnActive,
+                ]}
+                onPress={() => handleStatusChange('En ruta')}
+              >
+                <Text
+                  style={[
+                    styles.statusBtnText,
+                    driverStatus === 'En ruta' && styles.statusBtnTextActive,
+                  ]}
+                >
+                  En ruta
+                </Text>
+              </Pressable>
+
+              <Pressable
+                style={[
+                  styles.statusBtn,
+                  driverStatus === 'Próximo a llegar' && styles.statusBtnActive,
+                ]}
+                onPress={() => handleStatusChange('Próximo a llegar')}
+              >
+                <Text
+                  style={[
+                    styles.statusBtnText,
+                    driverStatus === 'Próximo a llegar' && styles.statusBtnTextActive,
+                  ]}
+                >
+                  Próximo a llegar
+                </Text>
+              </Pressable>
+
+              <Pressable
+                style={[
+                  styles.statusBtn,
+                  driverStatus === 'Finalizado' && styles.statusBtnActive,
+                ]}
+                onPress={() => handleStatusChange('Finalizado')}
+              >
+                <Text
+                  style={[
+                    styles.statusBtnText,
+                    driverStatus === 'Finalizado' && styles.statusBtnTextActive,
+                  ]}
+                >
+                  Finalizado
+                </Text>
+              </Pressable>
+            </View>
           </View>
-          <Badge label="En curso" variant="info" size="sm" dot={true} />
-        </View>
 
-        <View style={styles.stopActionsRow}>
-          <Pressable style={styles.nextStopBtn} onPress={handleNextStop}>
-            <SvgIcon name="checkCircle" size={16} color="#FFFFFF" />
-            <Text style={styles.nextStopBtnText}>Llegué a la Parada (Avanzar)</Text>
-          </Pressable>
+          {/* ================================================================= */}
+          {/* PANEL DE CONTROL DE CARGA (VENTA RÁPIDA -1, -2, -5) */}
+          {/* ================================================================= */}
+          <View style={styles.stockCard}>
+            <View style={styles.stockTop}>
+              <View>
+                <Text style={styles.stockLabel}>GARRAFAS EN CAMIÓN</Text>
+                <Text style={styles.stockBigNumber}>{stockRemaining}</Text>
+                <Text style={styles.stockSub}>Disponibles para entrega (Bs 22.50)</Text>
+              </View>
+              <View style={styles.stockStatsRight}>
+                <View style={styles.smallStat}>
+                  <Text style={styles.smallStatNum}>{totalDelivered}</Text>
+                  <Text style={styles.smallStatLabel}>Entregadas</Text>
+                </View>
+                <View style={styles.smallStat}>
+                  <Text style={styles.smallStatNum}>{emptyCylinders}</Text>
+                  <Text style={styles.smallStatLabel}>Vacíos rec.</Text>
+                </View>
+              </View>
+            </View>
 
-          <Pressable
-            style={styles.incidentBtn}
-            onPress={() => setIncidentModalVisible(true)}
-          >
-            <SvgIcon name="alertTriangle" size={16} color={Colors.danger} />
-            <Text style={styles.incidentBtnText}>Reportar Falla / Bloqueo</Text>
-          </Pressable>
-        </View>
-      </View>
+            <Text style={styles.quickSaleTitle}>VENTA RÁPIDA DE GARRAFAS:</Text>
+            <View style={styles.quickSaleRow}>
+              <Pressable
+                style={styles.quickSaleBtn}
+                onPress={() => deductStock(1)}
+              >
+                <Text style={styles.quickSaleText}>-1 Garrafa</Text>
+                <Text style={styles.quickSaleSub}>Bs 22.50</Text>
+              </Pressable>
+
+              <Pressable
+                style={styles.quickSaleBtn}
+                onPress={() => deductStock(2)}
+              >
+                <Text style={styles.quickSaleText}>-2 Garrafas</Text>
+                <Text style={styles.quickSaleSub}>Bs 45.00</Text>
+              </Pressable>
+
+              <Pressable
+                style={styles.quickSaleBtn}
+                onPress={() => deductStock(5)}
+              >
+                <Text style={styles.quickSaleText}>-5 Garrafas</Text>
+                <Text style={styles.quickSaleSub}>Bs 112.50</Text>
+              </Pressable>
+            </View>
+
+            {/* BOTÓN PROMINENTE: FINALIZAR RECORRIDO DE HOY */}
+            <Pressable
+              style={styles.finishRouteMainBtn}
+              onPress={handleFinishRoute}
+            >
+              <SvgIcon name="checkCircle" size={18} color="#FFFFFF" />
+              <Text style={styles.finishRouteMainBtnText}>
+                Finalizar Recorrido de Hoy
+              </Text>
+            </Pressable>
+          </View>
+
+          {/* ================================================================= */}
+          {/* PARADA ACTUAL Y HOJA DE RUTA CON HORARIOS ESTIMADOS */}
+          {/* ================================================================= */}
+          <View style={styles.currentStopCard}>
+            <View style={styles.currentStopHeader}>
+              <View>
+                <Text style={styles.currentStopTag}>PARADA ACTUAL EN CURSO</Text>
+                <Text style={styles.currentStopTitle}>
+                  {currentStop?.nombre_parada || 'Cruce Av. Petrolera / Obrajes'}
+                </Text>
+                <Text style={styles.currentStopTime}>
+                  Hora estimada: {currentStop?.hora_estimada || '09:15 AM'}
+                </Text>
+              </View>
+              <Badge label="En curso" variant="info" size="sm" dot={true} />
+            </View>
+
+            <View style={styles.stopActionsRow}>
+              <Pressable style={styles.nextStopBtn} onPress={handleNextStop}>
+                <SvgIcon name="checkCircle" size={16} color="#FFFFFF" />
+                <Text style={styles.nextStopBtnText}>Llegué a la Parada (Avanzar)</Text>
+              </Pressable>
+
+              <Pressable
+                style={styles.incidentBtn}
+                onPress={() => setIncidentModalVisible(true)}
+              >
+                <SvgIcon name="alertTriangle" size={16} color={Colors.danger} />
+                <Text style={styles.incidentBtnText}>Reportar Falla / Bloqueo</Text>
+              </Pressable>
+            </View>
+          </View>
+        </>
+      )}
 
       {/* Lista Desplegable de Todas las Paradas */}
       <View style={styles.allStopsSection}>
@@ -755,5 +840,80 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Colors.textMuted,
     marginTop: 2,
+  },
+  completedBanner: {
+    backgroundColor: '#F0FDF4',
+    borderRadius: Radius.xl,
+    padding: Spacing.md + 4,
+    marginBottom: Spacing.md,
+    borderWidth: 1.5,
+    borderColor: '#86EFAC',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  completedTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#065F46',
+    marginTop: 6,
+  },
+  completedSubtitle: {
+    fontSize: 13,
+    color: '#047857',
+    marginTop: 4,
+    lineHeight: 18,
+  },
+  completedSummaryBox: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    marginTop: Spacing.md,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  completedSummaryTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#065F46',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  summaryItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+  },
+  summaryItemLabel: {
+    fontSize: 12,
+    color: '#374151',
+  },
+  summaryItemValue: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  finishRouteMainBtn: {
+    backgroundColor: '#DC2626',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 13,
+    borderRadius: Radius.lg,
+    marginTop: Spacing.md,
+    gap: 8,
+    shadowColor: '#DC2626',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  finishRouteMainBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: 0.3,
   },
 });

@@ -39,6 +39,12 @@ import {
   getVehiclesFromSupabase,
   getRoutesFromSupabase,
   getNewsFromSupabase,
+  updateUserZoneInSupabase,
+  updateRouteStockInSupabase,
+  advanceStopInSupabase,
+  finishDriverRouteInSupabase,
+  saveComplaintInSupabase,
+  saveIncidentInSupabase,
 } from '../api/supabase';
 import { ZoneDemandData } from '../types';
 
@@ -63,7 +69,7 @@ interface AppContextType {
     phone: string;
     zone: string;
     role: UserRole;
-  }) => Promise<void>;
+  }) => Promise<{ success: boolean; error?: string }>;
 
   // Flota y Conductores
   vehicles: FleetVehicle[];
@@ -80,6 +86,7 @@ interface AppContextType {
   emptyCylinders: number;
   deductStock: (qty: number) => void;
   advanceRouteStop: () => void;
+  finishRoute: (routeId?: string) => Promise<void>;
   isRouteActive: boolean;
   toggleRouteActive: () => void;
 
@@ -151,7 +158,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [zoneDemandCards, setZoneDemandCards] = useState<ZoneDemandData[]>(INITIAL_ZONE_DEMAND_CARDS);
 
   // Ubicación y Zona del Usuario
-  const [userZone, setUserZone] = useState<string>('Zona Sur - Los Pinos');
+  const [userZone, setUserZoneState] = useState<string>('Zona Sur - Los Pinos');
+
+  const setUserZone = (zone: string) => {
+    setUserZoneState(zone);
+    if (currentUser?.email) {
+      setCurrentUser((prev) => ({ ...prev, zone }));
+      updateUserZoneInSupabase(currentUser.email, zone);
+    }
+  };
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number }>({
     lat: -16.5385,
     lng: -68.0821,
@@ -164,7 +179,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [incidents, setIncidents] = useState<RouteIncident[]>(INITIAL_INCIDENTS);
   const [notifications, setNotifications] = useState<AppNotification[]>(INITIAL_NOTIFICATIONS);
 
-  // Cargar datos reales desde la base de datos de Supabase al iniciar
+  // Cargar datos reales desde la base de datos de Supabase y sincronización periódica
   useEffect(() => {
     async function loadSupabaseLive() {
       try {
@@ -174,13 +189,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           getNewsFromSupabase(),
         ]);
         if (dbVehicles && dbVehicles.length > 0) setVehicles(dbVehicles);
-        if (dbRoutes && dbRoutes.length > 0) setRoutes(dbRoutes);
+        if (dbRoutes && dbRoutes.length > 0) {
+          setRoutes(dbRoutes);
+          const activeR = dbRoutes[0];
+          if (activeR) {
+            setStockRemaining(activeR.garrafas_restantes);
+            setTotalDelivered(activeR.cilindros_vacios_recibidos);
+            setEmptyCylinders(activeR.cilindros_vacios_recibidos);
+
+            if (activeR.estado === 'Finalizada') {
+              setDriverStatus('Finalizado');
+              setIsRouteActive(false);
+            } else if (activeR.estado === 'En curso') {
+              setIsRouteActive(true);
+            }
+          }
+        }
         if (dbNews && dbNews.length > 0) setNewsList(dbNews);
       } catch (err) {
-        console.log('Sincronización inicial Supabase completada:', err);
+        console.log('Sincronización en vivo Supabase:', err);
       }
     }
+
     loadSupabaseLive();
+    const interval = setInterval(loadSupabaseLive, 4000);
+    return () => clearInterval(interval);
   }, []);
 
   // Registrar un nuevo usuario en la base de datos de Supabase
@@ -192,9 +225,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     phone: string;
     zone: string;
     role: UserRole;
-  }) => {
+  }): Promise<{ success: boolean; error?: string }> => {
     // 1. Guardar en Supabase
-    const createdProfile = await createProfileInSupabase(data);
+    const { profile: createdProfile, error: dbError } = await createProfileInSupabase(data);
+
+    if (dbError && dbError.includes('profiles_email_key')) {
+      return {
+        success: false,
+        error: 'Este correo electrónico ya se encuentra registrado en GarrafaYa.',
+      };
+    }
 
     const newProfile: UserProfile = createdProfile || {
       id: `u-${Date.now()}`,
@@ -222,6 +262,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     else setActiveTab('clientHome');
 
     setIsAuthenticated(true);
+    return { success: true };
   };
 
   // Registrar consumo por zona de manera dinámica
@@ -351,11 +392,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsAuthenticated(false);
   };
 
-  // Descuento rápido de garrafas para Chofer y aumento de demanda de zona
-  const deductStock = (qty: number) => {
-    setStockRemaining((prev) => Math.max(0, prev - qty));
-    setTotalDelivered((prev) => prev + qty);
-    setEmptyCylinders((prev) => prev + qty);
+  // Descuento rápido de garrafas para Chofer y persistencia en Supabase
+  const deductStock = async (qty: number) => {
+    const targetRoute = routes[0];
+    const newRemaining = Math.max(0, stockRemaining - qty);
+    const newDelivered = totalDelivered + qty;
+
+    setStockRemaining(newRemaining);
+    setTotalDelivered(newDelivered);
+    setEmptyCylinders(newDelivered);
 
     // Incrementar demanda de zona sur automáticamente
     recordZoneDelivery('Zona Sur', qty);
@@ -366,12 +411,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (copy[0]) {
         copy[0] = {
           ...copy[0],
-          garrafas_restantes: Math.max(0, copy[0].garrafas_restantes - qty),
-          cilindros_vacios_recibidos: copy[0].cilindros_vacios_recibidos + qty,
+          garrafas_restantes: newRemaining,
+          cilindros_vacios_recibidos: newDelivered,
         };
       }
       return copy;
     });
+
+    // Guardar en base de datos Supabase
+    if (targetRoute) {
+      await updateRouteStockInSupabase(targetRoute.id, newRemaining, newDelivered);
+    }
   };
 
   // Registrar Salida de Planta (US-19)
@@ -613,15 +663,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIncidents((prev) => [newInc, ...prev]);
   };
 
-  const advanceRouteStop = () => {
+  // Avanzar parada del recorrido y persistir en Supabase
+  const advanceRouteStop = async () => {
+    let currentStopId: string | undefined;
+    let nextStopId: string | undefined;
+
     setRoutes((prevRoutes) => {
       const copy = [...prevRoutes];
       if (copy[0] && copy[0].stops) {
         const stops = [...copy[0].stops];
         const currentIdx = stops.findIndex((s) => s.estado === 'En curso');
         if (currentIdx !== -1) {
+          currentStopId = stops[currentIdx].id;
           stops[currentIdx] = { ...stops[currentIdx], estado: 'Completada', es_actual: false };
           if (currentIdx + 1 < stops.length) {
+            nextStopId = stops[currentIdx + 1].id;
             stops[currentIdx + 1] = {
               ...stops[currentIdx + 1],
               estado: 'En curso',
@@ -630,12 +686,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setDriverStatus('Próximo a llegar');
           } else {
             setDriverStatus('Finalizado');
+            setIsRouteActive(false);
           }
         }
         copy[0] = { ...copy[0], stops };
       }
       return copy;
     });
+
+    if (currentStopId) {
+      await advanceStopInSupabase(currentStopId, nextStopId);
+    }
+  };
+
+  // Finalizar recorrido del Chofer con persistencia en Supabase
+  const finishRoute = async (routeId?: string) => {
+    const targetRoute = routeId
+      ? routes.find((r) => r.id === routeId) || routes[0]
+      : routes[0];
+    const targetRouteId = targetRoute?.id || 'r-001';
+    const vehiclePlaca = targetRoute?.vehiculo_placa || 'ABC-1234';
+
+    // 1. Estado local inmediato
+    setIsRouteActive(false);
+    setDriverStatus('Finalizado');
+    setStockRemaining(0);
+
+    setRoutes((prev) =>
+      prev.map((r) =>
+        r.id === targetRouteId
+          ? {
+              ...r,
+              estado: 'Finalizada',
+              garrafas_restantes: 0,
+              stops: r.stops.map((s) => ({
+                ...s,
+                estado: 'Completada',
+                es_actual: false,
+              })),
+            }
+          : r
+      )
+    );
+
+    // 2. Persistir en la base de datos de Supabase
+    await finishDriverRouteInSupabase(targetRouteId, vehiclePlaca);
   };
 
   const toggleRouteActive = () => {
@@ -671,6 +766,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         emptyCylinders,
         deductStock,
         advanceRouteStop,
+        finishRoute,
         isRouteActive,
         toggleRouteActive,
         driverStatus,

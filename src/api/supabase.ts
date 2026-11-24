@@ -23,7 +23,7 @@ export async function createProfileInSupabase(profile: {
   phone: string;
   zone: string;
   address?: string;
-}): Promise<UserProfile | null> {
+}): Promise<{ profile: UserProfile | null; error?: string }> {
   try {
     const { data, error } = await supabase
       .from('profiles')
@@ -49,13 +49,13 @@ export async function createProfileInSupabase(profile: {
 
     if (error) {
       console.log('Error insert perfil Supabase:', error.message);
-      return null;
+      return { profile: null, error: error.message };
     }
 
-    return data as UserProfile;
-  } catch (err) {
+    return { profile: data as UserProfile };
+  } catch (err: any) {
     console.log('Error conectando a Supabase para registro:', err);
-    return null;
+    return { profile: null, error: err?.message || 'Error de conexión' };
   }
 }
 
@@ -140,17 +140,160 @@ export async function getRoutesFromSupabase(): Promise<DistributionRoute[] | nul
   }
 }
 
-// Obtener noticias oficiales desde Supabase
-export async function getNewsFromSupabase(): Promise<CommunityNews[] | null> {
+// Actualizar zona del usuario en Supabase
+export async function updateUserZoneInSupabase(email: string, zone: string) {
+  try {
+    const { error } = await supabase
+      .from('profiles')
+      .update({ zone })
+      .eq('email', email.trim().toLowerCase());
+    if (error) console.log('Error actualizando zona en Supabase:', error.message);
+  } catch (err) {
+    console.log('Error conectando a Supabase para actualizar zona:', err);
+  }
+}
+
+// Actualizar stock de garrafas en la ruta en vivo
+export async function updateRouteStockInSupabase(
+  routeId: string,
+  garrafasRestantes: number,
+  cilindrosVacios: number
+) {
+  try {
+    const { error } = await supabase
+      .from('distribution_routes')
+      .update({
+        garrafas_restantes: garrafasRestantes,
+        cilindros_vacios_recibidos: cilindrosVacios,
+      })
+      .eq('id', routeId);
+    if (error) console.log('Error actualizando stock en Supabase:', error.message);
+  } catch (err) {
+    console.log('Error conectando a Supabase para stock:', err);
+  }
+}
+
+// Avanzar parada de la ruta en Supabase
+export async function advanceStopInSupabase(
+  currentStopId: string,
+  nextStopId?: string
+) {
+  try {
+    // 1. Parada actual completada
+    await supabase
+      .from('route_stops')
+      .update({ estado: 'Completada', es_actual: false })
+      .eq('id', currentStopId);
+
+    // 2. Siguiente parada en curso
+    if (nextStopId) {
+      await supabase
+        .from('route_stops')
+        .update({ estado: 'En curso', es_actual: true })
+        .eq('id', nextStopId);
+    }
+  } catch (err) {
+    console.log('Error avanzando parada en Supabase:', err);
+  }
+}
+
+// Finalizar recorrido del chofer en Supabase (marca ruta como 'Finalizada' y camión en 'Descanso')
+export async function finishDriverRouteInSupabase(
+  routeId: string,
+  vehiclePlaca?: string
+) {
+  try {
+    // 1. Marcar la ruta como Finalizada
+    await supabase
+      .from('distribution_routes')
+      .update({
+        estado: 'Finalizada',
+        garrafas_restantes: 0,
+      })
+      .eq('id', routeId);
+
+    // 2. Marcar paradas como completadas
+    await supabase
+      .from('route_stops')
+      .update({ estado: 'Completada', es_actual: false })
+      .eq('ruta_id', routeId);
+
+    // 3. Poner el vehículo en Descanso
+    if (vehiclePlaca) {
+      await supabase
+        .from('vehicles')
+        .update({ estado: 'Descanso' })
+        .eq('placa', vehiclePlaca);
+    }
+  } catch (err) {
+    console.log('Error finalizando ruta en Supabase:', err);
+  }
+}
+
+// Guardar nuevo reclamo en Supabase
+export async function saveComplaintInSupabase(complaint: {
+  ticket_code?: string;
+  nombre_consumidor: string;
+  telefono_contacto: string;
+  placa_camion?: string;
+  zona: string;
+  tipo_reclamo: string;
+  descripcion: string;
+  prioridad?: string;
+}) {
   try {
     const { data, error } = await supabase
-      .from('community_news')
-      .select('*')
-      .order('created_at', { ascending: false });
+      .from('complaints')
+      .insert({
+        ticket_code: complaint.ticket_code || `REC-${Math.floor(1000 + Math.random() * 9000)}`,
+        nombre_consumidor: complaint.nombre_consumidor,
+        telefono_contacto: complaint.telefono_contacto,
+        placa_camion: complaint.placa_camion || 'ABC-1234',
+        zona: complaint.zona || 'Zona Sur',
+        tipo_reclamo: complaint.tipo_reclamo,
+        descripcion: complaint.descripcion,
+        prioridad: complaint.prioridad || 'Alta',
+        estado: 'Pendiente',
+      })
+      .select()
+      .single();
+    if (error) console.log('Error insertando reclamo en Supabase:', error.message);
+    return data;
+  } catch (err) {
+    console.log('Error conectando para reclamo en Supabase:', err);
+    return null;
+  }
+}
 
-    if (error || !data || data.length === 0) return null;
-    return data as CommunityNews[];
-  } catch {
+// Guardar nuevo incidente en Supabase
+export async function saveIncidentInSupabase(incident: {
+  codigo_incidente?: string;
+  vehiculo_placa: string;
+  conductor_nombre: string;
+  tipo_incidente: string;
+  descripcion: string;
+  lat?: number;
+  lng?: number;
+}) {
+  try {
+    const { data, error } = await supabase
+      .from('route_incidents')
+      .insert({
+        codigo_incidente: incident.codigo_incidente || `INC-${Math.floor(100 + Math.random() * 900)}`,
+        vehiculo_placa: incident.vehiculo_placa,
+        conductor_nombre: incident.conductor_nombre,
+        tipo_incidente: incident.tipo_incidente,
+        descripcion: incident.descripcion,
+        lat: incident.lat,
+        lng: incident.lng,
+        estado: 'Activo',
+      })
+      .select()
+      .single();
+    if (error) console.log('Error insertando incidente en Supabase:', error.message);
+    return data;
+  } catch (err) {
+    console.log('Error conectando para incidente en Supabase:', err);
     return null;
   }
 }

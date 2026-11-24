@@ -113,7 +113,7 @@ export const LoginScreen: React.FC = () => {
 
     setRegLoading(true);
     try {
-      await registerUser({
+      const res = await registerUser({
         full_name: regName.trim(),
         email: regEmail.trim(),
         password: regPassword.trim(),
@@ -122,6 +122,10 @@ export const LoginScreen: React.FC = () => {
         zone: regZone,
         role: regRole,
       });
+      if (res && !res.success) {
+        Alert.alert('Aviso de Registro', res.error || 'No se pudo registrar la cuenta.');
+        return;
+      }
       Alert.alert('¡Cuenta Creada!', `Bienvenido a GarrafaYa, ${regName}.`);
     } catch {
       Alert.alert('Error', 'No se pudo registrar la cuenta.');

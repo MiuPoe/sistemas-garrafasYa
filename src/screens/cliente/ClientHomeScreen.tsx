@@ -31,7 +31,17 @@ export const ClientHomeScreen: React.FC = () => {
     logout,
   } = useApp();
 
-  const currentRoute = routes[0];
+  const zonePrefix = userZone.toLowerCase().split(' - ')[0].trim();
+  const currentRoute =
+    routes.find(
+      (r) =>
+        r.zona.toLowerCase().includes(zonePrefix) ||
+        userZone.toLowerCase().includes(r.zona.toLowerCase())
+    ) || routes[0];
+
+  const isZoneFinished = currentRoute?.estado === 'Finalizada';
+  const availableGarrafas = currentRoute?.garrafas_restantes ?? stockRemaining;
+
   const [reservationModalVisible, setReservationModalVisible] = useState(false);
   const [sightingModalVisible, setSightingModalVisible] = useState(false);
   const [zoneModalVisible, setZoneModalVisible] = useState(false);
@@ -81,21 +91,35 @@ export const ClientHomeScreen: React.FC = () => {
         </Pressable>
       </View>
 
-      {/* Alerta de Camión Próximo (Checklist #3) */}
-      <View style={styles.proximityAlertBanner}>
-        <View style={styles.alertIconBox}>
-          <SvgIcon name="bell" size={16} color="#FFFFFF" />
+      {/* Alerta de Camión Próximo / Estado de Distribución */}
+      {isZoneFinished ? (
+        <View style={[styles.proximityAlertBanner, styles.finishedZoneBanner]}>
+          <View style={[styles.alertIconBox, { backgroundColor: '#10B981' }]}>
+            <SvgIcon name="checkCircle" size={16} color="#FFFFFF" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.alertTitle, { color: '#065F46' }]}>Distribución Concluida en tu Zona</Text>
+            <Text style={[styles.alertSub, { color: '#047857' }]}>
+              El camión {currentRoute?.vehiculo_placa || 'ABC-1234'} ya finalizó su recorrido hoy en {userZone}. Próxima distribución programada: mañana 08:30 AM.
+            </Text>
+          </View>
         </View>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.alertTitle}>¡Camión de Gas Próximo a tu Zona!</Text>
-          <Text style={styles.alertSub}>
-            Camión ABC-1234 a aprox. 3 cuadras con 84 garrafas disponibles.
-          </Text>
+      ) : (
+        <View style={styles.proximityAlertBanner}>
+          <View style={styles.alertIconBox}>
+            <SvgIcon name="bell" size={16} color="#FFFFFF" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.alertTitle}>¡Camión de Gas Activo en tu Zona!</Text>
+            <Text style={styles.alertSub}>
+              Camión {currentRoute?.vehiculo_placa || 'ABC-1234'} en recorrido por {currentRoute?.zona || userZone} con {availableGarrafas} garrafas disponibles.
+            </Text>
+          </View>
         </View>
-      </View>
+      )}
 
       {/* Mapa con Calles Reales de La Paz (Leaflet / OpenStreetMap) */}
-      <RouteMapViewer stockCount={stockRemaining} />
+      <RouteMapViewer selectedZone={userZone} stockCount={availableGarrafas} />
 
       {/* Banner de Reporte Colaborativo "¡Vi el Camión!" */}
       <TruckSightingBanner
@@ -112,24 +136,28 @@ export const ClientHomeScreen: React.FC = () => {
       <View style={styles.routeSummaryCard}>
         <View style={styles.routeHeader}>
           <View>
-            <Text style={styles.routeCode}>{currentRoute?.codigo_ruta}</Text>
-            <Text style={styles.routeName}>{currentRoute?.nombre_ruta}</Text>
+            <Text style={styles.routeCode}>{currentRoute?.codigo_ruta || 'RUTA-01'}</Text>
+            <Text style={styles.routeName}>{currentRoute?.nombre_ruta || 'Recorrido en Zona Sur'}</Text>
           </View>
-          <Badge label="En curso" variant="success" dot />
+          <Badge
+            label={isZoneFinished ? 'Finalizada' : 'En curso'}
+            variant={isZoneFinished ? 'neutral' : 'success'}
+            dot={!isZoneFinished}
+          />
         </View>
 
         <View style={styles.driverInfoRow}>
           <View style={styles.driverItem}>
             <SvgIcon name="truck" size={14} color={Colors.textMuted} />
-            <Text style={styles.driverText}>{currentRoute?.vehiculo_placa}</Text>
+            <Text style={styles.driverText}>{currentRoute?.vehiculo_placa || 'ABC-1234'}</Text>
           </View>
           <View style={styles.driverItem}>
             <SvgIcon name="user" size={14} color={Colors.textMuted} />
-            <Text style={styles.driverText}>{currentRoute?.conductor_nombre}</Text>
+            <Text style={styles.driverText}>{currentRoute?.conductor_nombre || 'Raul Chofer'}</Text>
           </View>
           <View style={styles.driverItem}>
             <SvgIcon name="cylinder" size={14} color={Colors.mustard} />
-            <Text style={styles.stockText}>{stockRemaining} restantes</Text>
+            <Text style={styles.stockText}>{availableGarrafas} restantes</Text>
           </View>
         </View>
       </View>
@@ -282,6 +310,10 @@ const styles = StyleSheet.create({
     padding: Spacing.sm + 2,
     marginBottom: Spacing.sm,
     gap: 10,
+  },
+  finishedZoneBanner: {
+    backgroundColor: '#F0FDF4',
+    borderColor: '#86EFAC',
   },
   alertIconBox: {
     width: 32,

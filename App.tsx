@@ -1,4 +1,5 @@
 import React from 'react';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppProvider, useApp } from './src/context/AppContext';
 import { ScreenContainer } from './src/components/templates/ScreenContainer';
 
@@ -94,8 +95,10 @@ const MainNavigator: React.FC = () => {
 
 export default function App() {
   return (
-    <AppProvider>
-      <MainNavigator />
-    </AppProvider>
+    <SafeAreaProvider>
+      <AppProvider>
+        <MainNavigator />
+      </AppProvider>
+    </SafeAreaProvider>
   );
 }
